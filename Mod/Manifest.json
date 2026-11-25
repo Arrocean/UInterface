@@ -1,0 +1,9 @@
+{
+  "name": "UInterface",
+  "version": "0.4.0",
+  "description": "Connects submarine content to native stations, controls, equipment, and ship subsystems.",
+  "supportedGameVersions": ["2026.1"],
+  "assemblyName": "UInterface",
+  "permissions": ["Reflection"],
+  "steamFileId": 0
+}
