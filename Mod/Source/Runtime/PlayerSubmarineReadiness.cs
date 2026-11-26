@@ -28,6 +28,7 @@ namespace UInterface
         {
             int revision = PlayerSubmarineContext.Revision + 1;
             restoreRevision = revision;
+            DeviceStateApi.BeginRestore();
             PlayerSubmarineContext.Invalidate();
             return revision;
         }
@@ -40,6 +41,7 @@ namespace UInterface
             }
 
             restoreRevision = null;
+            DeviceStateApi.FinishRestore(restored);
             if (restored && PlayerSubmarineContext.RefreshRestoredShip(out var ship))
             {
                 AwaitReady(ship, PlayerSubmarineContext.Revision, restored: true).Forget();

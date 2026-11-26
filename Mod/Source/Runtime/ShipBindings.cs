@@ -93,6 +93,22 @@ namespace UInterface
             return TryGet(id, out value, out _);
         }
 
+        internal TResult AggregateAvailable<TResult>(TResult result, Func<TResult, T, TResult> accumulate)
+        {
+            if (HasActiveContext())
+            {
+                foreach (var entry in entries.Values)
+                {
+                    if (IsAvailable(entry))
+                    {
+                        result = accumulate(result, entry.Value);
+                    }
+                }
+            }
+
+            return result;
+        }
+
         internal bool TryGet(string id, out T value, out Transform mount)
         {
             value = null;

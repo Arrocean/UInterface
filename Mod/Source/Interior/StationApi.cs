@@ -35,6 +35,11 @@ namespace UInterface
             return StationRegistry.RegisterStationGroup(submarineId, stationId, mountIds);
         }
 
+        public static IDisposable RegisterActionTemplate(string actionId, ShipActivator station, CharacterAction template)
+        {
+            return StationTemplates.Register(actionId, station, template);
+        }
+
         public static bool RegisterAction(string stationId, string actionId, Type actionType)
         {
             return StationRegistry.RegisterAction(stationId, actionId, actionType);

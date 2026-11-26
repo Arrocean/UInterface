@@ -145,6 +145,7 @@ namespace UInterface
 
         private static void NotifyAvailabilityChanged(string equipmentId, bool available)
         {
+            SensorContactsApi.ForgetSensor(equipmentId);
             var handlers = OnSensorAvailabilityChanged;
             if (handlers == null)
             {

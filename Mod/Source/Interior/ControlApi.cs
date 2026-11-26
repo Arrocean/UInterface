@@ -2,6 +2,7 @@ using System;
 using UBOAT.Game.Scene.Characters;
 using UBOAT.Game.Scene.Items;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace UInterface
 {
@@ -82,6 +83,81 @@ namespace UInterface
             return read != null && set != null && SubmarineApi.TryGetMount(mountId, out var mount)
                 ? Controls.Register(controlId, new Binding(mountId, null, read, set), mount)
                 : null;
+        }
+
+        public static IDisposable RegisterFirstPersonAxis(string controlId, string mountId, Func<float> read,
+            Func<PlayableCharacter, float, bool> set, float unitsPerPixel, bool vertical = false)
+        {
+            if (read == null || set == null || unitsPerPixel == 0f || float.IsInfinity(unitsPerPixel) ||
+                float.IsNaN(unitsPerPixel) || !TryGetAvailableFirstPersonMount(mountId, out var mount))
+            {
+                return null;
+            }
+
+            var registration = Controls.Register(controlId, new Binding(mountId, null, read, value =>
+                CrewServicesApi.TryGetFirstPersonCrew(out var character) && set(character, value)), mount);
+            if (registration == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var axis = mount.gameObject.AddComponent<FirstPersonControlAxis>();
+                axis.Bind(controlId, registration, unitsPerPixel, vertical);
+                return axis;
+            }
+            catch
+            {
+                registration.Dispose();
+                throw;
+            }
+        }
+
+        public static IDisposable RegisterFirstPersonHold(string controlId, string mountId,
+            Action<PlayableCharacter, bool> changed)
+        {
+            if (changed == null || !TryGetAvailableFirstPersonMount(mountId, out var mount))
+            {
+                return null;
+            }
+
+            var registration = Controls.Register(controlId, new Binding(mountId, null, null, null), mount);
+            if (registration == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var hold = mount.gameObject.AddComponent<FirstPersonControlHold>();
+                hold.Bind(controlId, registration, changed);
+                return hold;
+            }
+            catch
+            {
+                registration.Dispose();
+                throw;
+            }
+        }
+
+        private static bool TryGetAvailableFirstPersonMount(string mountId, out Transform mount)
+        {
+            if (!SubmarineApi.TryGetMount(mountId, out mount))
+            {
+                return false;
+            }
+
+            foreach (var component in mount.GetComponents<Behaviour>())
+            {
+                if (component && component.enabled && (component is IPointerClickHandler ||
+                    component is IPointerDownHandler || component is IDragHandler))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         public static bool TryGetControlMount(string controlId, out Transform mount)

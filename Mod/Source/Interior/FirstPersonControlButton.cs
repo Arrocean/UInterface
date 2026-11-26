@@ -6,24 +6,19 @@ using UnityEngine;
 namespace UInterface
 {
     [NonSerializedInGameState]
-    internal sealed class FirstPersonControlButton : FPPInteractionObject, IDisposable
+    internal abstract class FirstPersonControl : FPPInteractionObject, IDisposable
     {
         private string controlId;
         private IDisposable registration;
+
+        protected string ControlId => controlId;
+        protected bool IsBound => registration != null && isActiveAndEnabled;
 
         internal void Bind(string id, IDisposable controlRegistration)
         {
             controlId = id;
             registration = controlRegistration;
             PlayerSubmarineContext.Invalidated += Dispose;
-        }
-
-        protected override void OnClick()
-        {
-            if (registration != null && enabled)
-            {
-                ControlApi.TryPress(controlId);
-            }
         }
 
         protected override string GetTooltipContents()
@@ -40,7 +35,7 @@ namespace UInterface
             }
         }
 
-        private void OnDestroy()
+        protected void OnDestroy()
         {
             Unbind();
         }
@@ -57,6 +52,18 @@ namespace UInterface
             registration = null;
             previous.Dispose();
             return true;
+        }
+    }
+
+    [NonSerializedInGameState]
+    internal sealed class FirstPersonControlButton : FirstPersonControl
+    {
+        protected override void OnClick()
+        {
+            if (IsBound)
+            {
+                ControlApi.TryPress(ControlId);
+            }
         }
     }
 }

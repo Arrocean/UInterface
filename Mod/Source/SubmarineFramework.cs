@@ -26,6 +26,7 @@ namespace UInterface
             if (TryInstall("uinterface.lifecycle", typeof(PlayerSubmarineLifecycle), typeof(SaveRestoreLifecycle)))
             {
                 SubmarineApi.TrackSceneUnloads();
+                TryInstall(DeviceStateApi.FeatureId, typeof(DeviceStateWrite), typeof(DeviceStateRead));
             }
 
             TryInstall("uinterface.dependency-scenes", typeof(PlayerSubmarineDependencyLifecycle));
@@ -36,6 +37,10 @@ namespace UInterface
             Installed.Add("uinterface.mounted-subsystems");
             Installed.Add("uinterface.first-person-buttons");
             Installed.Add("uinterface.native-sensor-observations");
+            Installed.Add("uinterface.first-person-axes");
+            Installed.Add("uinterface.first-person-hold");
+            Installed.Add("uinterface.sensor-contacts");
+            Installed.Add("uinterface.tube-requests");
         }
 
         internal static int GetFeatureVersion(string featureId)
@@ -46,6 +51,21 @@ namespace UInterface
         internal static bool TryInstallPropulsionBinding()
         {
             return TryInstall("uinterface.propulsion-binding", typeof(NativePropulsionBinding));
+        }
+
+        internal static bool TryInstallPropulsionOutput()
+        {
+            return TryInstall(PropulsionApi.FeatureId, typeof(NativePropellerPower), typeof(NativeTargetSpeed));
+        }
+
+        internal static bool TryInstallPowerSupply()
+        {
+            return TryInstall(PowerApi.FeatureId, typeof(NativeBatteryUpdate));
+        }
+
+        internal static bool TryInstallStationTemplates()
+        {
+            return TryInstall("uinterface.station-templates", typeof(StationTemplateQuery), typeof(StationTemplateListQuery));
         }
 
         private static bool TryInstall(string featureId, params Type[] patchClasses)
