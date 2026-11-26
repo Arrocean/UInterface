@@ -5,17 +5,20 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <UboatGamePath Condition="'$(UboatGamePath)' == ''">$(UBOAT_GAME_PATH)</UboatGamePath>
     <UboatManagedPath>$(UboatGamePath)/UBOAT_Data/Managed</UboatManagedPath>
+    <WorkshopModPath>$(MSBuildProjectDirectory)/Workshop/UInterface</WorkshopModPath>
     <LocalModPath Condition="'$(LocalModPath)' == ''">$(USERPROFILE)/AppData/LocalLow/Deep Water Studio/UBOAT/Mods/uboat-submarine-framework</LocalModPath>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="Mod/Source/**/*.cs" />
-    <ModFiles Include="Mod/**/*" Exclude="Mod/**/*.meta" />
+    <ModFiles Include="Mod/**/*"
+              Exclude="Mod/**/*.meta;Mod/**/*.dll;Mod/**/*.mdb;Mod/**/*.pdb;Mod/**/*.exe;Mod/**/*.bat;Mod/**/*.py;Mod/**/*.cpp;Mod/**/*.h;Mod/**/*.c" />
     <Reference Include="0Harmony" HintPath="$(UboatManagedPath)/0Harmony.dll" Private="false" />
     <Reference Include="com.uboat.game" HintPath="$(UboatManagedPath)/com.uboat.game.dll" Private="false" />
     <Reference Include="com.uboat.modapi" HintPath="$(UboatManagedPath)/com.uboat.modapi.dll" Private="false" />
     <Reference Include="UniTask" HintPath="$(UboatManagedPath)/UniTask.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(UboatManagedPath)/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.UI" HintPath="$(UboatManagedPath)/UnityEngine.UI.dll" Private="false" />
   </ItemGroup>
 
   <Target Name="CheckGameAssemblies" BeforeTargets="ResolveAssemblyReferences">
@@ -23,9 +26,25 @@
            Text="Set UBOAT_GAME_PATH or -p:UboatGamePath to the UBOAT installation directory." />
   </Target>
 
-  <Target Name="DeployMod" DependsOnTargets="Build">
-    <Copy SourceFiles="@(ModFiles)"
-          DestinationFiles="@(ModFiles->'$(LocalModPath)/%(RecursiveDir)%(Filename)%(Extension)')" />
+  <Target Name="PackageWorkshop" AfterTargets="Build">
+    <Error Condition="!Exists('Mod/Manifest.json') Or !Exists('Mod/readme.txt') Or !Exists('Mod/preview.jpg')"
+           Text="The Workshop package requires a manifest, readme.txt and preview.jpg at its root." />
+    <ItemGroup>
+      <WorkshopFiles Include="@(ModFiles->'$(WorkshopModPath)/%(RecursiveDir)%(Filename)%(Extension)')" />
+      <ObsoleteWorkshopSources Include="$(WorkshopModPath)/Source/**/*.cs" Exclude="@(WorkshopFiles)" />
+    </ItemGroup>
+    <Delete Files="@(ObsoleteWorkshopSources)" />
+    <Copy SourceFiles="@(ModFiles)" DestinationFiles="@(WorkshopFiles)" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Packaged UInterface at $(WorkshopModPath)" />
+  </Target>
+
+  <Target Name="DeployMod" DependsOnTargets="Build;PackageWorkshop">
+    <ItemGroup>
+      <LocalModFiles Include="@(ModFiles->'$(LocalModPath)/%(RecursiveDir)%(Filename)%(Extension)')" />
+      <ObsoleteLocalSources Include="$(LocalModPath)/Source/**/*.cs" Exclude="@(LocalModFiles)" />
+    </ItemGroup>
+    <Delete Files="@(ObsoleteLocalSources)" />
+    <Copy SourceFiles="@(WorkshopFiles)" DestinationFiles="@(LocalModFiles)" SkipUnchangedFiles="true" />
     <Message Importance="high" Text="Deployed UInterface to $(LocalModPath)" />
   </Target>
 </Project>

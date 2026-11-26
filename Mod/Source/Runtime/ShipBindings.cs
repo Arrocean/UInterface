@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
-using UBOAT.Game.Scene.Entities;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace UInterface
 {
@@ -10,11 +11,15 @@ namespace UInterface
         {
             internal readonly T Value;
             internal readonly long Serial;
+            internal readonly Transform Mount;
+            internal readonly int? SceneHandle;
 
-            internal Entry(T value, long serial)
+            internal Entry(T value, long serial, Transform mount)
             {
                 Value = value;
                 Serial = serial;
+                Mount = mount;
+                SceneHandle = mount ? (int?)mount.gameObject.scene.handle : null;
             }
         }
 
@@ -39,38 +44,134 @@ namespace UInterface
         }
 
         private readonly Dictionary<string, Entry> entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
-        private PlayerShip owner;
+        private readonly Action<string, bool> availabilityChanged;
+        private readonly Func<T, bool> isAlive;
         private long nextSerial;
 
-        internal ShipBindings()
+        internal bool HasEntries => entries.Count > 0;
+
+        internal ShipBindings(Action<string, bool> availabilityChanged = null, Func<T, bool> isAlive = null)
         {
-            SubmarineApi.OnPlayerSubmarineChanged += OnShipChanged;
+            this.availabilityChanged = availabilityChanged;
+            this.isAlive = isAlive;
+            PlayerSubmarineContext.Invalidated += Clear;
+            SceneManager.sceneUnloaded += OnSceneUnloaded;
         }
 
-        internal IDisposable Register(string id, T value)
+        internal IDisposable Register(string id, T value, Transform mount = null)
         {
-            if (!SubmarineRegistry.IsIdentifier(id) || value == null ||
-                !SyncOwner() || entries.ContainsKey(id))
+            if (!SubmarineRegistry.IsIdentifier(id) || value == null || !HasActiveContext())
+            {
+                return null;
+            }
+
+            if (entries.TryGetValue(id, out var existing) && IsAvailable(existing))
             {
                 return null;
             }
 
             long serial = ++nextSerial;
-            entries.Add(id, new Entry(value, serial));
+            entries[id] = new Entry(value, serial, mount);
+            availabilityChanged?.Invoke(id, true);
             return new Registration(this, id, serial);
+        }
+
+        internal string[] GetIds()
+        {
+            if (!HasActiveContext())
+            {
+                return Array.Empty<string>();
+            }
+
+            var ids = new string[entries.Count];
+            entries.Keys.CopyTo(ids, 0);
+            return ids;
         }
 
         internal bool TryGet(string id, out T value)
         {
+            return TryGet(id, out value, out _);
+        }
+
+        internal bool TryGet(string id, out T value, out Transform mount)
+        {
             value = null;
+            mount = null;
             if (!SubmarineRegistry.IsIdentifier(id) ||
-                !SyncOwner() || !entries.TryGetValue(id, out var entry))
+                !HasActiveContext() || !entries.TryGetValue(id, out var entry))
             {
                 return false;
             }
 
+            if (!IsAvailable(entry))
+            {
+                Remove(id, entry.Serial);
+                return false;
+            }
+
             value = entry.Value;
+            mount = entry.Mount;
             return true;
+        }
+
+        private bool IsAvailable(Entry entry)
+        {
+            return (!entry.SceneHandle.HasValue || entry.Mount) &&
+                (isAlive == null || isAlive(entry.Value));
+        }
+
+        private void Clear()
+        {
+            var removed = availabilityChanged != null ? new List<string>(entries.Keys) : null;
+            entries.Clear();
+            if (removed != null && removed.Count > 0)
+            {
+                PlayerSubmarineContext.PublishAfterInvalidation(() =>
+                {
+                    foreach (string id in removed)
+                    {
+                        if (!entries.ContainsKey(id))
+                        {
+                            availabilityChanged(id, false);
+                        }
+                    }
+                });
+            }
+        }
+
+        private void OnSceneUnloaded(Scene scene)
+        {
+            RemoveMatching(entry => entry.SceneHandle == scene.handle);
+        }
+
+        internal void SweepUnavailable()
+        {
+            RemoveMatching(entry => !IsAvailable(entry));
+        }
+
+        private void RemoveMatching(Predicate<Entry> matches)
+        {
+            List<KeyValuePair<string, Entry>> removed = null;
+            foreach (var entry in entries)
+            {
+                if (matches(entry.Value))
+                {
+                    if (removed == null)
+                    {
+                        removed = new List<KeyValuePair<string, Entry>>();
+                    }
+
+                    removed.Add(entry);
+                }
+            }
+
+            if (removed != null)
+            {
+                foreach (var entry in removed)
+                {
+                    Remove(entry.Key, entry.Value.Serial);
+                }
+            }
         }
 
         private void Remove(string id, long serial)
@@ -78,29 +179,14 @@ namespace UInterface
             if (entries.TryGetValue(id, out var entry) && entry.Serial == serial)
             {
                 entries.Remove(id);
+                availabilityChanged?.Invoke(id, false);
             }
         }
 
-        private void OnShipChanged(PlayerShip previous, PlayerShip current)
+        private static bool HasActiveContext()
         {
-            SyncOwner();
-        }
-
-        private bool SyncOwner()
-        {
-            bool hasShip = SubmarineApi.TryGetCurrentSubmarine(out _, out var current);
-            if (!hasShip)
-            {
-                current = null;
-            }
-
-            if (!ReferenceEquals(owner, current))
-            {
-                entries.Clear();
-                owner = current;
-            }
-
-            return hasShip;
+            return PlayerSubmarineReadiness.CanBind &&
+                SubmarineApi.TryGetCurrentSubmarine(out _, out _);
         }
     }
 }

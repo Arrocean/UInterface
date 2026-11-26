@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Cysharp.Threading.Tasks;
 using HarmonyLib;
 using UBOAT.Game.Scene.Entities;
 using UnityEngine;
@@ -20,12 +21,15 @@ namespace UInterface
         private static readonly Dictionary<string, string> EquipmentMountIds =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
-        private static PlayerShip currentShip;
-        private static int? currentSceneHandle;
-        private static string currentSubmarineId;
-
         public static event Action<PlayerShip, PlayerShip> OnPlayerSubmarineChanged;
+        public static event Action<PlayerShip> OnPlayerSubmarineReady;
+        public static event Action<PlayerShip> OnPlayerSubmarineRestored;
+        public static event Action<PlayerShip, Transform> OnPlayerSubmarineDependencyReady;
 
+        public static int GetFeatureVersion(string featureId)
+        {
+            return SubmarineFramework.GetFeatureVersion(featureId);
+        }
         public static bool RegisterSubmarine(string id, string baseType, string entityType, string interiorScene)
         {
             return SubmarineRegistry.Register(id, baseType, entityType, interiorScene);
@@ -54,23 +58,35 @@ namespace UInterface
 
         public static bool TryGetCurrentSubmarine(out string submarineId, out PlayerShip ship)
         {
-            ship = currentShip;
-            submarineId = ship ? currentSubmarineId : null;
+            ship = PlayerSubmarineContext.Ship;
+            submarineId = ship && PlayerSubmarineReadiness.CanBind ? PlayerSubmarineContext.SubmarineId : null;
             return submarineId != null;
+        }
+
+        public static bool TryGetReadySubmarine(out string submarineId, out PlayerShip ship)
+        {
+            if (PlayerSubmarineReadiness.IsReady && TryGetCurrentSubmarine(out submarineId, out ship))
+            {
+                return true;
+            }
+
+            submarineId = null;
+            ship = null;
+            return false;
         }
 
         public static bool TryGetMount(string mountId, out Transform mount)
         {
             mount = null;
-            if (!currentShip || currentSubmarineId == null || !SubmarineRegistry.IsIdentifier(mountId))
+            if (!TryGetCurrentSubmarine(out var submarineId, out var ship) || !SubmarineRegistry.IsIdentifier(mountId))
             {
                 return false;
             }
 
-            string transformPath = GetMapping(Mounts, MountSheet, currentSubmarineId + ":" + mountId, "Transform");
+            string transformPath = GetMapping(Mounts, MountSheet, submarineId + ":" + mountId, "Transform");
             if (!string.IsNullOrWhiteSpace(transformPath))
             {
-                mount = currentShip.Find(transformPath, lookInDependencyScenes: true);
+                mount = ShipMountResolver.Find(ship, transformPath);
             }
 
             return mount != null;
@@ -90,16 +106,20 @@ namespace UInterface
 
         internal static void UpdatePlayerSubmarine(PlayerShip nextShip, string entityType)
         {
-            if (ReferenceEquals(currentShip, nextShip))
+            var previousShip = PlayerSubmarineContext.Ship;
+            if (ReferenceEquals(previousShip, nextShip))
             {
                 return;
             }
 
-            var previousShip = currentShip;
-            string nextId = nextShip ? SubmarineRegistry.GetLoadedId(entityType) : null;
-            currentShip = nextShip;
-            currentSubmarineId = nextId;
-            currentSceneHandle = nextShip ? (int?)nextShip.gameObject.scene.handle : null;
+            PlayerSubmarineContext.SetShip(nextShip, entityType);
+            int revision = PlayerSubmarineContext.Invalidate();
+            if (revision != PlayerSubmarineContext.Revision)
+            {
+                return;
+            }
+
+            PlayerSubmarineReadiness.ObserveShip(nextShip);
 
             var handlers = OnPlayerSubmarineChanged;
             if (handlers == null)
@@ -109,6 +129,11 @@ namespace UInterface
 
             foreach (Action<PlayerShip, PlayerShip> handler in handlers.GetInvocationList())
             {
+                if (revision != PlayerSubmarineContext.Revision)
+                {
+                    break;
+                }
+
                 try
                 {
                     handler(previousShip, nextShip);
@@ -120,9 +145,70 @@ namespace UInterface
             }
         }
 
+        internal static void NotifyReady(PlayerShip ship, bool restored, int revision)
+        {
+            NotifyShip(OnPlayerSubmarineReady, ship, revision);
+            if (restored)
+            {
+                NotifyShip(OnPlayerSubmarineRestored, ship, revision);
+            }
+        }
+
+        internal static async UniTask NotifyDependencyReady(PlayerShip ship, Transform root, int revision)
+        {
+            await UniTask.NextFrame();
+            var handlers = OnPlayerSubmarineDependencyReady;
+            if (handlers == null || !TryGetReadySubmarine(out _, out var current) || current != ship)
+            {
+                return;
+            }
+
+            foreach (Action<PlayerShip, Transform> handler in handlers.GetInvocationList())
+            {
+                if (!root || !root.gameObject.scene.isLoaded || PlayerSubmarineContext.Revision != revision)
+                {
+                    break;
+                }
+
+                try
+                {
+                    handler(ship, root);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                }
+            }
+        }
+
+        private static void NotifyShip(Action<PlayerShip> handlers, PlayerShip ship, int revision)
+        {
+            if (handlers == null)
+            {
+                return;
+            }
+
+            foreach (Action<PlayerShip> handler in handlers.GetInvocationList())
+            {
+                if (!ship || PlayerSubmarineContext.Revision != revision)
+                {
+                    break;
+                }
+
+                try
+                {
+                    handler(ship);
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogException(exception);
+                }
+            }
+        }
+
         private static void OnSceneUnloaded(Scene scene)
         {
-            if (currentSceneHandle == scene.handle)
+            if (PlayerSubmarineContext.SceneHandle == scene.handle)
             {
                 UpdatePlayerSubmarine(null, null);
             }
@@ -160,6 +246,19 @@ namespace UInterface
         {
             SubmarineApi.UpdatePlayerSubmarine(e.NewPlayerShip,
                 e.NewPlayerShip ? __instance.SandboxEntity?.Type?.Name : null);
+        }
+    }
+
+    [HarmonyPatch(typeof(Entity), nameof(Entity.OnDependencySceneLoaded))]
+    internal static class PlayerSubmarineDependencyLifecycle
+    {
+        private static void Postfix(Entity __instance, GameObject rootGameObject)
+        {
+            if (__instance is PlayerShip ship && rootGameObject &&
+                SubmarineApi.TryGetCurrentSubmarine(out _, out var current) && current == ship)
+            {
+                SubmarineApi.NotifyDependencyReady(ship, rootGameObject.transform, PlayerSubmarineContext.Revision).Forget();
+            }
         }
     }
 }

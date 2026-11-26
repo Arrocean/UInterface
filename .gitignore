@@ -140,6 +140,7 @@ crashlytics-build.properties
 # Standalone UInterface build
 !/UInterface.csproj
 /bin/
+/Workshop/
 
 # IDE
 .idea

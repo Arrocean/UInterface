@@ -166,6 +166,48 @@ namespace UInterface
                     : entityType);
         }
 
+        internal static string GetSceneName(string scene)
+        {
+            if (string.IsNullOrWhiteSpace(scene))
+            {
+                return null;
+            }
+
+            string name = scene.Substring(scene.LastIndexOfAny(new[] { '/', '\\' }) + 1);
+            return name.EndsWith(".unity", StringComparison.OrdinalIgnoreCase)
+                ? name.Substring(0, name.Length - ".unity".Length) : name;
+        }
+
+        internal static SubmarineDefinition FindByInteriorScene(string sceneName)
+        {
+            foreach (string vanillaType in VanillaTypes)
+            {
+                if (string.Equals(sceneName, vanillaType + " Interior", StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+            }
+
+            SubmarineDefinition match = null;
+            foreach (var definition in Definitions())
+            {
+                if (!definition.IsCustom ||
+                    !string.Equals(sceneName, GetSceneName(definition.InteriorScene), StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (match != null)
+                {
+                    return null;
+                }
+
+                match = definition;
+            }
+
+            return match;
+        }
+
         private static SubmarineDefinition ReadDefinition(GameDataRow row)
         {
             string id = row.GetString(0);

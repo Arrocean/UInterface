@@ -3,14 +3,16 @@ This project serves as a foundational, component-based mod for Uboat, designed t
 
 ## 本地开发
 
-当前支持 UBOAT 2026.1 Patch 21（Steam build 24913406）。框架为内容包提供艇型注册、开局和港口装载、设备挂点及玩家艇切换通知。
+当前支持 UBOAT 2026.1 Patch 21（Steam build 24913406）。框架为内容包提供艇型注册、开局和港口装载、设备挂点及玩家艇生命周期通知。
 
 ```powershell
 dotnet build -c Release -p:UboatGamePath="D:\Steam\steamapps\common\UBOAT"
 dotnet build -c Release -t:DeployMod -p:UboatGamePath="D:\Steam\steamapps\common\UBOAT"
 ```
 
-`UboatGamePath` 也可通过环境变量 `UBOAT_GAME_PATH` 提供。部署目标默认是 `%USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\uboat-submarine-framework`，可用 `-p:LocalModPath=...` 指定其他位置。部署后在启动器的 Mods 列表启用 **UInterface**。UBOAT 使用部署包中的 `Source` 自行编译脚本。
+`UboatGamePath` 也可通过环境变量 `UBOAT_GAME_PATH` 提供。每次构建都会生成 `Workshop/UInterface`。该目录的根包含 `Manifest.json`、`readme.txt`、`preview.jpg` 和 `Source`。C# 源码由 UBOAT 模组管理器编译。版本库保留 `Mod` 内的源码和发布素材，`Workshop`、`bin` 和 `obj` 是生成目录。
+
+`DeployMod` 默认复制发布包到 `%USERPROFILE%\AppData\LocalLow\Deep Water Studio\UBOAT\Mods\uboat-submarine-framework`，也可用 `-p:LocalModPath=...` 指向其他 UInterface 安装目录。部署后，在 UBOAT 启动器的 Mods 页面找到 UInterface，使用其 Steam Workshop 上传入口。首次上传成功后，启动器会把条目 ID 写入该安装目录的清单。后续更新前，把该 ID 同步到 `Mod/Manifest.json`，这样下一次部署仍关联同一条目。
 
 ## 为战役注册艇型
 
@@ -41,7 +43,7 @@ dotnet build -c Release -t:DeployMod -p:UboatGamePath="D:\Steam\steamapps\common
 
 | 工作表 | 首列的键 | 其他列 |
 | --- | --- | --- |
-| `UInterfaceMounts` | `example.submarine:radar-mast` | `Transform` 填艇体或舱内根对象下的相对层级路径，例如 `Exterior/Masts/Radar`。 |
+| `UInterfaceMounts` | `example.submarine:radar-mast` | `Transform` 填艇体、舱内或已加载依赖场景根对象下的相对层级路径，例如 `Exterior/Masts/Radar`。 |
 | `UInterfaceEquipment` | `example.radar` | `Mount` 填 `radar-mast`。 |
 
 同一设备包可以在提供同名挂点的多艘艇上使用。使用原版艇或原版别名时，挂点键使用原版实际艇型，例如 `Type VIIC:radar-mast`。
@@ -53,14 +55,17 @@ dotnet build -c Release -t:DeployMod -p:UboatGamePath="D:\Steam\steamapps\common
 | 接口 | 职责 |
 | --- | --- |
 | `RegisterSubmarine(id, baseType, entityType, interiorScene)` / `TryGetSubmarine(id, out baseType, out entityType, out interiorScene)` | 注册或查询艇型。原版别名的实体名和场景名都传 `null`。 |
-| `RegisterMount(submarineId, mountId, transformPath)` / `TryGetMount(mountId, out mount)` | 注册挂点，并从当前玩家艇查找 `Transform`。 |
+| `RegisterMount(submarineId, mountId, transformPath)` / `TryGetMount(mountId, out mount)` | 注册挂点，按艇体、舱内、已加载的本艇依赖场景顺序查找 `Transform`。依赖场景中有多处匹配时返回 `false`。 |
 | `RegisterEquipment(equipmentId, mountId)` / `TryGetEquipmentMount(equipmentId, out mount)` | 声明设备所需的挂点，并用设备 ID 找到安装位置。 |
-| `TryGetCurrentSubmarine(out submarineId, out ship)` | 获取当前艇和实际艇型 ID。模块初始化后可调用一次，用于接管已经加载的艇。 |
-| `OnPlayerSubmarineChanged` | 参数为 `(previousShip, newShip)`。卸载时 `newShip` 为 `null`，此时释放设备绑定。 |
+| `TryGetCurrentSubmarine(out submarineId, out ship)` | 获取当前艇和实际艇型 ID。 |
+| `OnPlayerSubmarineChanged` | 参数为 `(previousShip, newShip)`。原版切换阶段发出，卸载时 `newShip` 为 `null`。 |
+| `TryGetReadySubmarine(out submarineId, out ship)` / `OnPlayerSubmarineReady` | 查询已初始化的当前艇，或在开局、换艇和读档后接收 `PlayerShip`，用于绑定工位和设备。 |
+| `OnPlayerSubmarineRestored` | 原版读档流程完成后，在本次就绪通知之后发出，参数为恢复后的 `PlayerShip`。 |
+| `OnPlayerSubmarineDependencyReady` | 依赖场景在玩家艇就绪后加载时，提供当前艇和依赖场景根 `Transform`，用于补绑设备。 |
 
-UBOAT 运行时分别编译各个源码 Mod。第三方脚本可在 `IUserMod.OnLoaded` 中用 `AccessTools.TypeByName("UInterface.SubmarineApi")` 查找公共类型，检查 `ApiVersion`，再为需要的方法创建委托。需要在退出艇场景时解绑的脚本可以订阅上述事件。
+UBOAT 运行时分别编译各个源码 Mod。依赖方可注入游戏的 `IModManager`，通过 `GetMod("UInterface")?.Assembly` 从实际启用的框架程序集查找公共类型，再为所需方法创建委托。基础签名版本由 `ApiVersion` 表示。`GetFeatureVersion(featureId)` 返回当前已安装的能力版本，`0` 表示暂不可用。依赖方应在艇就绪时取得当前运行时绑定，允许可选能力稍后出现。完整示例见[跨 Mod 调用](docs/机制接口接入说明.md#由游戏模组管理器加载的内容包)。
 
-设备挂点提供资源定位。设备包可通过 `DeploymentApi` 接入桅杆收放和状态。探测模块可通过 `SensorsApi` 获取原版探测器和观测结果。
+设备包可通过 `DeploymentApi` 接入桅杆收放和状态，通过 `SensorsApi` 注册自定义传感器并提供状态通知。探测模块也可以获取原版探测器和观测结果。
 
 ## 舱内工位
 
@@ -73,17 +78,25 @@ UBOAT 运行时分别编译各个源码 Mod。第三方脚本可在 `IUserMod.On
 | `uinterface.helm` | `uinterface.helm.work` | 到舵手工位值班，沿用原版船员管理设置 |
 | `uinterface.trim-pump` | `uinterface.trim-pump.toggle` | 派船员操作配平泵开关，使用设备本身的配平和排水逻辑 |
 
-自制艇在 `Sandbox.xlsx` 的 `UInterfaceStations` 工作表中添加绑定。首列为 `/`，键例为 `example.submarine:uinterface.helm`，`Mount` 列填在 `UInterfaceMounts` 中注册的挂点 ID。挂点应指向当前艇内舱的原版 `Activator` 或其关联设备所在的对象。一处挂点需能唯一定位操作入口。
+自制艇在 `Sandbox.xlsx` 的 `UInterfaceStations` 工作表中添加绑定。首列为 `/`，键例为 `example.submarine:uinterface.helm`。`Mount` 填单个挂点 ID，`Mounts` 可填逗号分隔的多个挂点 ID。挂点应指向当前艇内舱的原版 `Activator` 或其关联设备所在的对象。
 
 | 接口 | 职责 |
 | --- | --- |
 | `RegisterStation(submarineId, stationId, mountId)` | 脚本注册工位绑定，已有数据表定义优先 |
+| `RegisterStationGroup(submarineId, stationId, mountIds)` | 一次注册同组的多个挂点 |
 | `RegisterAction(stationId, actionId, actionType)` | 给工位上的现有 `CharacterAction` 类型绑定动作 ID |
-| `TryGetStation(stationId, out activator)` | 找到当前艇上的原版操作入口 |
+| `RegisterActionSelector(stationId, actionId, actionType, selector)` | 用筛选器区分同类型的原版动作模板 |
+| `RegisterSubmarineAction(submarineId, stationId, actionId, actionType, selector)` | 为指定艇型绑定动作，优先于同名全局默认绑定 |
+| `GetStations(stationId)` / `TryGetStation(stationId, out activator)` | 枚举当前艇的工位，或在唯一匹配时取回原版操作入口 |
 | `QueryActions(stationId, actor)` / `TryGetActionState(stationId, actionId, actor, out state)` | 查询角色在该工位可见的动作及原版可用状态 |
-| `RequestAction(stationId, actionId, actor)` | 通过原版角色动作入口请求执行。返回值表示请求是否进入动作流程，任务完成状态由原版系统持有 |
-| `TryGetState(stationId, out hasAssignedCrew, out switchedOn, out operating)` | 读取设备工位的人员指派、开关和实际启用状态 |
-| `SubscribeStateChanged(stationId, callback)` | 监听原版工位状态和人员指派变化，返回可释放的订阅。换艇时自动解除，内容包可重新查询和订阅 |
+| `RequestAction(stationId, actionId, actor)` | 通过原版角色动作入口请求执行。返回值表示任务已接收，或已适配的即时动作已完成 |
+| `RequestTrackedAction` / `RequestTrackedNativeAction` / `TryCancelTrackedAction` | 取得原版动作实例，读取进度和阶段，并按原版停止条件取消指定动作 |
+| `QueryQueuedNativeActions` / `RequestQueuedNativeAction` / `TryCancelQueuedNativeAction` | 追加到个人队列，或在未指定船员时提交全艇队列 |
+| `GetActiveQueuedNativeActions` / `TryTrackQueuedNativeAction` | 玩家艇就绪后枚举并接管原版队列中的玩家任务，包括读档恢复的任务 |
+| `QueryNativeUtilityActions` / `RequestNativeUtilityAction` | 查询并触发原版辅助交互，例如打开设备帮助或储物界面 |
+| `TryGetState` / `TryGetStationState` | 按唯一 ID 或工位实例读取人员指派、开关和实际启用状态 |
+| `TryGetStationUsers(station, out users)` | 获取正在使用工位的船员，也适用于没有原版设备关联的工位 |
+| `SubscribeStateChanged` / `SubscribeStationStateChanged` | 按唯一 ID 或工位实例监听状态。换艇、卸载和读档时解除订阅 |
 
 ## 机制接口
 

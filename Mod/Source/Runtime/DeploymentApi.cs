@@ -22,22 +22,20 @@ namespace UInterface
 
         public static IDisposable RegisterDeployable(string equipmentId, Func<bool, bool> request, Func<string> readState)
         {
-            return request != null && readState != null && SubmarineApi.TryGetEquipmentMount(equipmentId, out _)
-                ? Equipment.Register(equipmentId, new Binding(request, readState))
+            return request != null && readState != null && SubmarineApi.TryGetEquipmentMount(equipmentId, out var mount)
+                ? Equipment.Register(equipmentId, new Binding(request, readState), mount)
                 : null;
         }
 
         public static bool RequestDeployment(string equipmentId, bool deploy)
         {
-            return Equipment.TryGet(equipmentId, out var binding) &&
-                SubmarineApi.TryGetEquipmentMount(equipmentId, out _) && binding.Request(deploy);
+            return TryGetAvailableEquipment(equipmentId, out var binding) && binding.Request(deploy);
         }
 
         public static bool TryGetEquipmentState(string equipmentId, out string state)
         {
             state = null;
-            if (!Equipment.TryGet(equipmentId, out var binding) ||
-                !SubmarineApi.TryGetEquipmentMount(equipmentId, out _))
+            if (!TryGetAvailableEquipment(equipmentId, out var binding))
             {
                 return false;
             }
@@ -50,6 +48,12 @@ namespace UInterface
 
             state = current;
             return true;
+        }
+
+        private static bool TryGetAvailableEquipment(string equipmentId, out Binding binding)
+        {
+            return Equipment.TryGet(equipmentId, out binding, out var mount) &&
+                SubmarineApi.TryGetEquipmentMount(equipmentId, out var resolved) && resolved == mount;
         }
     }
 }

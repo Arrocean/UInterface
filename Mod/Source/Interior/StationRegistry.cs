@@ -6,21 +6,38 @@ namespace UInterface
 {
     internal static class StationRegistry
     {
+        internal sealed class ActionBinding
+        {
+            internal readonly Type Type;
+            internal readonly Func<CharacterAction, bool> Selector;
+
+            internal ActionBinding(Type type, Func<CharacterAction, bool> selector)
+            {
+                Type = type;
+                Selector = selector;
+            }
+        }
+
         private const string StationSheet = "Sandbox/UInterfaceStations/";
 
-        private static readonly Dictionary<string, string> Mounts =
-            new Dictionary<string, string>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, string[]> Mounts =
+            new Dictionary<string, string[]>(StringComparer.Ordinal);
 
         private static readonly Dictionary<string, string> StockTags =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
-        private static readonly Dictionary<string, Dictionary<string, Type>> Actions =
-            new Dictionary<string, Dictionary<string, Type>>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Dictionary<string, ActionBinding>> Actions =
+            new Dictionary<string, Dictionary<string, ActionBinding>>(StringComparer.Ordinal);
 
         internal static bool RegisterStation(string submarineId, string stationId, string mountId)
         {
+            return RegisterStationGroup(submarineId, stationId, new[] { mountId });
+        }
+
+        internal static bool RegisterStationGroup(string submarineId, string stationId, string[] mountIds)
+        {
             if (!SubmarineRegistry.IsIdentifier(submarineId) || !SubmarineRegistry.IsIdentifier(stationId) ||
-                !SubmarineRegistry.IsIdentifier(mountId))
+                !AreMountIdsValid(mountIds))
             {
                 return false;
             }
@@ -31,22 +48,37 @@ namespace UInterface
                 return false;
             }
 
-            Mounts.Add(key, mountId);
+            Mounts.Add(key, (string[])mountIds.Clone());
             return true;
         }
 
-        internal static bool RegisterAction(string stationId, string actionId, Type actionType)
+        internal static bool RegisterAction(string stationId, string actionId, Type actionType,
+            Func<CharacterAction, bool> selector = null)
         {
-            if (!SubmarineRegistry.IsIdentifier(stationId) || !SubmarineRegistry.IsIdentifier(actionId) ||
+            return SubmarineRegistry.IsIdentifier(stationId) &&
+                RegisterActionForKey(stationId, actionId, actionType, selector);
+        }
+
+        internal static bool RegisterSubmarineAction(string submarineId, string stationId, string actionId,
+            Type actionType, Func<CharacterAction, bool> selector)
+        {
+            return SubmarineRegistry.IsIdentifier(submarineId) && SubmarineRegistry.IsIdentifier(stationId) &&
+                RegisterActionForKey(submarineId + ":" + stationId, actionId, actionType, selector);
+        }
+
+        private static bool RegisterActionForKey(string key, string actionId, Type actionType,
+            Func<CharacterAction, bool> selector)
+        {
+            if (!SubmarineRegistry.IsIdentifier(actionId) ||
                 actionType == null || actionType.IsAbstract || !typeof(CharacterAction).IsAssignableFrom(actionType))
             {
                 return false;
             }
 
-            if (!Actions.TryGetValue(stationId, out var actions))
+            if (!Actions.TryGetValue(key, out var actions))
             {
-                actions = new Dictionary<string, Type>(StringComparer.Ordinal);
-                Actions.Add(stationId, actions);
+                actions = new Dictionary<string, ActionBinding>(StringComparer.Ordinal);
+                Actions.Add(key, actions);
             }
 
             if (actions.ContainsKey(actionId))
@@ -54,7 +86,7 @@ namespace UInterface
                 return false;
             }
 
-            actions.Add(actionId, actionType);
+            actions.Add(actionId, new ActionBinding(actionType, selector));
             return true;
         }
 
@@ -69,17 +101,44 @@ namespace UInterface
             StockTags.Add(stationId, tag);
         }
 
-        internal static bool TryGetMountId(string submarineId, string stationId, out string mountId)
+        internal static bool TryGetMountIds(string submarineId, string stationId, out string[] mountIds)
         {
             string key = submarineId + ":" + stationId;
             var row = SubmarineRegistry.ReadRow(StationSheet + key);
             if (row != null)
             {
-                mountId = row.GetString("Mount");
+                string group = row.GetString("Mounts");
+                var ids = string.IsNullOrWhiteSpace(group)
+                    ? new[] { row.GetString("Mount") } : group.Split(',');
+                for (int index = 0; index < ids.Length; index++)
+                {
+                    ids[index] = ids[index]?.Trim();
+                }
+
+                mountIds = AreMountIdsValid(ids) ? ids : Array.Empty<string>();
                 return true;
             }
 
-            return Mounts.TryGetValue(key, out mountId);
+            return Mounts.TryGetValue(key, out mountIds);
+        }
+
+        private static bool AreMountIdsValid(string[] mountIds)
+        {
+            if (mountIds == null || mountIds.Length == 0)
+            {
+                return false;
+            }
+
+            var distinct = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string mountId in mountIds)
+            {
+                if (!SubmarineRegistry.IsIdentifier(mountId) || !distinct.Add(mountId))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         internal static bool TryGetStockTag(string submarineId, string stationId, out string tag)
@@ -88,10 +147,27 @@ namespace UInterface
             return SubmarineRegistry.VanillaTypes.Contains(submarineId) && StockTags.TryGetValue(stationId, out tag);
         }
 
-        internal static IReadOnlyDictionary<string, Type> GetActions(string stationId)
+        internal static IReadOnlyDictionary<string, ActionBinding> GetActions(string stationId)
         {
-            Actions.TryGetValue(stationId, out var actions);
-            return actions;
+            Actions.TryGetValue(stationId, out var defaults);
+            var submarineId = PlayerSubmarineContext.SubmarineId;
+            if (submarineId == null || !Actions.TryGetValue(submarineId + ":" + stationId, out var local))
+            {
+                return defaults;
+            }
+
+            if (defaults == null)
+            {
+                return local;
+            }
+
+            var applicable = new Dictionary<string, ActionBinding>(defaults, StringComparer.Ordinal);
+            foreach (var entry in local)
+            {
+                applicable[entry.Key] = entry.Value;
+            }
+
+            return applicable;
         }
     }
 }

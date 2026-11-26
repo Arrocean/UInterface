@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace UInterface
@@ -14,23 +15,40 @@ namespace UInterface
                 return Array.Empty<Component>();
             }
 
-            var exterior = ship.GetComponentsInChildren(componentType, includeInactive);
-            var interior = ship.Interior;
-            if (!interior || interior.transform == ship.transform || interior.transform.IsChildOf(ship.transform))
+            var components = new List<Component>();
+            var seen = new HashSet<Component>();
+            var hull = ship.transform;
+            var interior = ship.Interior ? ship.Interior.transform : null;
+            if (interior && hull.IsChildOf(interior))
             {
-                return exterior;
+                Collect(interior);
+            }
+            else
+            {
+                Collect(hull);
+                if (interior && !interior.IsChildOf(hull))
+                {
+                    Collect(interior);
+                }
             }
 
-            var inside = interior.GetComponentsInChildren(componentType, includeInactive);
-            if (ship.transform.IsChildOf(interior.transform))
+            foreach (var root in ShipMountResolver.GetDependencyRoots(ship))
             {
-                return inside;
+                Collect(root);
             }
 
-            var combined = new Component[exterior.Length + inside.Length];
-            Array.Copy(exterior, combined, exterior.Length);
-            Array.Copy(inside, 0, combined, exterior.Length, inside.Length);
-            return combined;
+            return components.ToArray();
+
+            void Collect(Transform root)
+            {
+                foreach (var component in root.GetComponentsInChildren(componentType, includeInactive))
+                {
+                    if (component && seen.Add(component))
+                    {
+                        components.Add(component);
+                    }
+                }
+            }
         }
 
         public static bool TryGetMountedComponent(string mountId, Type componentType, out Component component)

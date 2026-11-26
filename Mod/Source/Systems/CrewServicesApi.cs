@@ -1,5 +1,7 @@
 using System;
 using DWS.Common.InjectionFramework;
+using UBOAT.Game.Scene;
+using UBOAT.Game.Scene.Camera;
 using UBOAT.Game.Scene.Characters;
 using UBOAT.Game.Scene.Items;
 
@@ -20,6 +22,26 @@ namespace UInterface
             }
 
             return (PlayableCharacter[])crew.Characters.Clone();
+        }
+
+        public static bool TryGetFirstPersonCrew(out PlayableCharacter character)
+        {
+            character = null;
+            var camera = MainCamera.Instance;
+            if (crew == null || !SubmarineApi.TryGetReadySubmarine(out _, out _) ||
+                !camera || camera.CurrentMode != CameraMode.FPP)
+            {
+                return false;
+            }
+
+            var candidate = camera.FPPController?.Character;
+            if (!candidate || !crew.Contains(candidate))
+            {
+                return false;
+            }
+
+            character = candidate;
+            return true;
         }
 
         public static bool TryGetSupplies(out Storage main, out Storage accessories)

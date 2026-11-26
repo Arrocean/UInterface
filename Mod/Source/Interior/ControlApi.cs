@@ -1,4 +1,6 @@
 using System;
+using UBOAT.Game.Scene.Characters;
+using UBOAT.Game.Scene.Items;
 using UnityEngine;
 
 namespace UInterface
@@ -27,15 +29,58 @@ namespace UInterface
 
         public static IDisposable RegisterButton(string controlId, string mountId, Func<bool> press)
         {
-            return press != null && SubmarineApi.TryGetMount(mountId, out _)
-                ? Controls.Register(controlId, new Binding(mountId, press, null, null))
+            return press != null && SubmarineApi.TryGetMount(mountId, out var mount)
+                ? Controls.Register(controlId, new Binding(mountId, press, null, null), mount)
                 : null;
+        }
+
+        public static IDisposable RegisterFirstPersonButton(string controlId, string mountId,
+            Func<PlayableCharacter, bool> press)
+        {
+            if (press == null || !SubmarineApi.TryGetMount(mountId, out var mount))
+            {
+                return null;
+            }
+
+            foreach (var interaction in mount.GetComponents<FPPInteractionObject>())
+            {
+                if (interaction && interaction.enabled)
+                {
+                    return null;
+                }
+            }
+
+            var binding = new Binding(mountId,
+                () => CrewServicesApi.TryGetFirstPersonCrew(out var character) && press(character), null, null);
+            var registration = Controls.Register(controlId, binding, mount);
+            if (registration == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var button = mount.gameObject.AddComponent<FirstPersonControlButton>();
+                if (button)
+                {
+                    button.Bind(controlId, registration);
+                    return button;
+                }
+            }
+            catch
+            {
+                registration.Dispose();
+                throw;
+            }
+
+            registration.Dispose();
+            return null;
         }
 
         public static IDisposable RegisterAxis(string controlId, string mountId, Func<float> read, Func<float, bool> set)
         {
-            return read != null && set != null && SubmarineApi.TryGetMount(mountId, out _)
-                ? Controls.Register(controlId, new Binding(mountId, null, read, set))
+            return read != null && set != null && SubmarineApi.TryGetMount(mountId, out var mount)
+                ? Controls.Register(controlId, new Binding(mountId, null, read, set), mount)
                 : null;
         }
 
@@ -76,8 +121,14 @@ namespace UInterface
 
         private static bool TryGetAvailableControl(string controlId, out Binding binding, out Transform mount)
         {
+            if (Controls.TryGet(controlId, out binding, out mount) &&
+                SubmarineApi.TryGetMount(binding.MountId, out var resolved) && resolved == mount)
+            {
+                return true;
+            }
+
             mount = null;
-            return Controls.TryGet(controlId, out binding) && SubmarineApi.TryGetMount(binding.MountId, out mount);
+            return false;
         }
     }
 }

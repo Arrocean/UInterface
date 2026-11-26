@@ -1,8 +1,8 @@
 using System;
 using UBOAT.Game.Scene.Characters;
-using UBOAT.Game.Scene.Entities;
 using UBOAT.Game.Scene.Items;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using ShipActivator = UBOAT.Game.Scene.Characters.Activators.Activator;
 
 namespace UInterface
@@ -12,11 +12,13 @@ namespace UInterface
         private ShipActivator station;
         private Device device;
         private Action callback;
+        private readonly int sceneHandle;
 
         internal StationStateSubscription(ShipActivator station, Action callback)
         {
             this.station = station;
             this.callback = callback;
+            sceneHandle = station.gameObject.scene.handle;
             device = station.AssociatedEquipment as Device;
             if (device)
             {
@@ -26,7 +28,8 @@ namespace UInterface
             station.StateChanged += Notify;
             station.ActionStarted += OnAssignmentChanged;
             station.ActionStopped += OnAssignmentChanged;
-            SubmarineApi.OnPlayerSubmarineChanged += OnPlayerSubmarineChanged;
+            PlayerSubmarineContext.Invalidated += Dispose;
+            SceneManager.sceneUnloaded += OnSceneUnloaded;
         }
 
         public void Dispose()
@@ -44,7 +47,8 @@ namespace UInterface
             station.StateChanged -= Notify;
             station.ActionStarted -= OnAssignmentChanged;
             station.ActionStopped -= OnAssignmentChanged;
-            SubmarineApi.OnPlayerSubmarineChanged -= OnPlayerSubmarineChanged;
+            PlayerSubmarineContext.Invalidated -= Dispose;
+            SceneManager.sceneUnloaded -= OnSceneUnloaded;
             station = null;
             device = null;
             callback = null;
@@ -72,9 +76,12 @@ namespace UInterface
             Notify();
         }
 
-        private void OnPlayerSubmarineChanged(PlayerShip previousShip, PlayerShip newShip)
+        private void OnSceneUnloaded(Scene scene)
         {
-            Dispose();
+            if (scene.handle == sceneHandle)
+            {
+                Dispose();
+            }
         }
     }
 }
