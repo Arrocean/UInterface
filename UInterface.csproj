@@ -19,6 +19,7 @@
     <Reference Include="UniTask" HintPath="$(UboatManagedPath)/UniTask.dll" Private="false" />
     <Reference Include="UnityEngine.CoreModule" HintPath="$(UboatManagedPath)/UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="UnityEngine.UI" HintPath="$(UboatManagedPath)/UnityEngine.UI.dll" Private="false" />
+    <Reference Include="UnityEngine.UIModule" HintPath="$(UboatManagedPath)/UnityEngine.UIModule.dll" Private="false" />
   </ItemGroup>
 
   <Target Name="CheckGameAssemblies" BeforeTargets="ResolveAssemblyReferences">

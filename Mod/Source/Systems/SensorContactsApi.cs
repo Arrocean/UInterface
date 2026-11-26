@@ -30,7 +30,10 @@ namespace UInterface
             }
 
             float normalized = bearing % 360f;
-            source.Contacts[contactId] = new Contact(normalized < 0f ? normalized + 360f : normalized, sandboxPosition);
+            var ship = PlayerSubmarineContext.Ship;
+            Vector2? origin = ship ? ship.SandboxEntity?.Position : null;
+            source.Contacts[contactId] = new Contact(normalized < 0f ? normalized + 360f : normalized,
+                sandboxPosition, origin);
             Notify(sensorId, contactId, true);
             return true;
         }
@@ -92,6 +95,15 @@ namespace UInterface
             }
         }
 
+        internal static void CopyMapContacts(List<Contact> contacts)
+        {
+            contacts.Clear();
+            foreach (var source in Sources.Values)
+            {
+                contacts.AddRange(source.Contacts.Values);
+            }
+        }
+
         private static void Notify(string sensorId, string contactId, bool available)
         {
             var handlers = OnContactChanged;
@@ -129,15 +141,17 @@ namespace UInterface
             }
         }
 
-        private struct Contact
+        internal struct Contact
         {
             internal readonly float Bearing;
             internal readonly Vector2? Position;
+            internal readonly Vector2? Origin;
 
-            internal Contact(float bearing, Vector2? position)
+            internal Contact(float bearing, Vector2? position, Vector2? origin)
             {
                 Bearing = bearing;
                 Position = position;
+                Origin = origin;
             }
         }
     }

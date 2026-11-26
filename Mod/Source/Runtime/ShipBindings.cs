@@ -46,14 +46,17 @@ namespace UInterface
         private readonly Dictionary<string, Entry> entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
         private readonly Action<string, bool> availabilityChanged;
         private readonly Func<T, bool> isAlive;
+        private readonly Action<T> onRemoved;
         private long nextSerial;
 
         internal bool HasEntries => entries.Count > 0;
 
-        internal ShipBindings(Action<string, bool> availabilityChanged = null, Func<T, bool> isAlive = null)
+        internal ShipBindings(Action<string, bool> availabilityChanged = null, Func<T, bool> isAlive = null,
+            Action<T> onRemoved = null)
         {
             this.availabilityChanged = availabilityChanged;
             this.isAlive = isAlive;
+            this.onRemoved = onRemoved;
             PlayerSubmarineContext.Invalidated += Clear;
             SceneManager.sceneUnloaded += OnSceneUnloaded;
         }
@@ -72,6 +75,11 @@ namespace UInterface
 
             long serial = ++nextSerial;
             entries[id] = new Entry(value, serial, mount);
+            if (existing != null)
+            {
+                onRemoved?.Invoke(existing.Value);
+            }
+
             availabilityChanged?.Invoke(id, true);
             return new Registration(this, id, serial);
         }
@@ -139,7 +147,19 @@ namespace UInterface
         private void Clear()
         {
             var removed = availabilityChanged != null ? new List<string>(entries.Keys) : null;
+            var values = onRemoved != null ? new List<Entry>(entries.Values) : null;
             entries.Clear();
+            if (values != null && values.Count > 0)
+            {
+                PlayerSubmarineContext.PublishAfterInvalidation(() =>
+                {
+                    foreach (var entry in values)
+                    {
+                        onRemoved(entry.Value);
+                    }
+                });
+            }
+
             if (removed != null && removed.Count > 0)
             {
                 PlayerSubmarineContext.PublishAfterInvalidation(() =>
@@ -195,6 +215,7 @@ namespace UInterface
             if (entries.TryGetValue(id, out var entry) && entry.Serial == serial)
             {
                 entries.Remove(id);
+                onRemoved?.Invoke(entry.Value);
                 availabilityChanged?.Invoke(id, false);
             }
         }

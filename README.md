@@ -106,4 +106,6 @@ UBOAT 运行时分别编译各个源码 Mod。依赖方可注入游戏的 `IModM
 
 发电和用电设备可通过 `PowerApi.RegisterSource` 和 `PowerApi.RegisterLoad` 向原版电池结算增减电量。动力包可以保留原版电机与电池，独立实现发电设备。速率和跨 Mod 调用示例见 [电力接入](docs/机制接口接入说明.md#电力接入)。
 
+需要随原版舱室通断电的设备可用 `PowerApi.RegisterInterlockedLoad`。通过 `SensorContactsApi` 报告的接触同时显示在原版普通和战术海图。
+
 设备包可接入[随档保存](docs/机制接口接入说明.md#设备状态随档保存)、[第一人称连续控件](docs/机制接口接入说明.md#自定义控件桅杆与子系统)、[新工位动作](docs/机制接口接入说明.md#工位与原版动作)、[共享接触](docs/机制接口接入说明.md#共享传感器接触)和[管组请求](docs/机制接口接入说明.md#火控与弹药的职责)。

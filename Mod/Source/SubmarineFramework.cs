@@ -32,6 +32,7 @@ namespace UInterface
             TryInstall("uinterface.dependency-scenes", typeof(PlayerSubmarineDependencyLifecycle));
             TryInstall("uinterface.campaign", typeof(CampaignSubmarineLoader));
             TryInstall("uinterface.port", typeof(PortSubmarineLoader), typeof(PortSubmarineOptions));
+            TryInstall("uinterface.sensor-contact-map", typeof(NativeSensorContactMap));
             Installed.Add("uinterface.subsystem-operations");
             Installed.Add("uinterface.submarine-actions");
             Installed.Add("uinterface.mounted-subsystems");
@@ -63,9 +64,25 @@ namespace UInterface
             return TryInstall(PowerApi.FeatureId, typeof(NativeBatteryUpdate));
         }
 
+        internal static bool TryInstallPowerInterlocks()
+        {
+            return TryInstall("uinterface.power-interlocks", typeof(NativeCompartmentPower));
+        }
+
         internal static bool TryInstallStationTemplates()
         {
             return TryInstall("uinterface.station-templates", typeof(StationTemplateQuery), typeof(StationTemplateListQuery));
+        }
+
+        internal static bool TryInstallAmmoCompatibility()
+        {
+            return TryInstall("uinterface.ammo-compatibility", typeof(NativeAmmoSlotRule),
+                typeof(NativeAutomaticLoadTube), typeof(NativeAutomaticLoadAmmo));
+        }
+
+        internal static bool TryInstallLaunchSpread()
+        {
+            return TryInstall("uinterface.launch-spread", typeof(NativeLaunchRequest), typeof(NativeLaunchSpreadRead));
         }
 
         private static bool TryInstall(string featureId, params Type[] patchClasses)

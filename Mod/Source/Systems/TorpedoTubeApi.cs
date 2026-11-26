@@ -14,8 +14,6 @@ namespace UInterface
     public static class TorpedoTubeApi
     {
         public const int ApiVersion = 1;
-        private static readonly ShipBindings<Func<ExtendedTorpedoLauncher, bool>> Compatibility =
-            new ShipBindings<Func<ExtendedTorpedoLauncher, bool>>();
 
         public static ExtendedTorpedoLauncher[] GetTorpedoTubes()
         {
@@ -29,7 +27,7 @@ namespace UInterface
 
         public static IDisposable RegisterAmmoCompatibility(string ammoType, Func<ExtendedTorpedoLauncher, bool> acceptsTube)
         {
-            return SubmarineApi.TryGetReadySubmarine(out _, out _) ? Compatibility.Register(ammoType, acceptsTube) : null;
+            return AmmoCompatibility.Register(ammoType, acceptsTube);
         }
 
         public static bool TryGetTubeState(ExtendedTorpedoLauncher tube, out StoredTorpedo ammo,
@@ -53,7 +51,7 @@ namespace UInterface
 
         public static bool IsAmmoCompatible(ExtendedTorpedoLauncher tube, StoredTorpedo ammo)
         {
-            return TryGetCurrentTube(tube, out var group, out int index) && IsCompatible(tube, ammo, group, index);
+            return TryGetCurrentTube(tube, out var group, out int index) && IsCompatible(ammo, group, index);
         }
 
         public static StoredTorpedo[] GetCompatibleStoredAmmo(ExtendedTorpedoLauncher tube)
@@ -67,7 +65,7 @@ namespace UInterface
             var ammo = new List<StoredTorpedo>();
             for (int i = 0; i < source.SlotCount; i++)
             {
-                if (source.GetItemAt(i) is StoredTorpedo item && IsCompatible(tube, item, group, index))
+                if (source.GetItemAt(i) is StoredTorpedo item && IsCompatible(item, group, index))
                 {
                     ammo.Add(item);
                 }
@@ -80,7 +78,7 @@ namespace UInterface
             PlayableCharacter actor, bool warm = false)
         {
             if (!TryGetCurrentTube(tube, out var group, out int targetIndex) ||
-                !IsCompatible(tube, ammo, group, targetIndex) || !CanLoad(tube, group, targetIndex))
+                !IsCompatible(ammo, group, targetIndex) || !CanLoad(tube, group, targetIndex))
             {
                 return null;
             }
@@ -102,7 +100,8 @@ namespace UInterface
             int revision = PlayerSubmarineContext.Revision;
             if (action.GetState(station, actor, fillDetails: false, isPlayerOrder: true, actionContext: context).ActionState
                 != ActionState.Enabled || !await action.OnPreStart(null) || revision != PlayerSubmarineContext.Revision ||
-                !CanLoad(tube, group, targetIndex) || source.HasTransportOrders(sourceIndex) ||
+                !CanLoad(tube, group, targetIndex) || !IsCompatible(ammo, group, targetIndex) ||
+                source.HasTransportOrders(sourceIndex) ||
                 !ReferenceEquals(source.GetItemAt(sourceIndex), ammo))
             {
                 return null;
@@ -154,12 +153,7 @@ namespace UInterface
                 }
             }
 
-            if (ready)
-            {
-                ship.LaunchAllTorpedoes(depth, speed, salvoSpread);
-            }
-
-            return ready;
+            return ready && NativeLaunchSpread.TryLaunch(ship, depth, speed, salvoSpread);
         }
 
         private static bool TryGetCurrentTube(ExtendedTorpedoLauncher tube, out TorpedoLauncherGroup group, out int index)
@@ -178,15 +172,13 @@ namespace UInterface
             return index >= 0 && group.Launchers != null && index < group.Launchers.Length && group.Launchers[index] == tube;
         }
 
-        private static bool IsCompatible(ExtendedTorpedoLauncher tube, StoredTorpedo ammo, TorpedoLauncherGroup group,
-            int index)
+        internal static bool IsCompatible(StoredTorpedo ammo, TorpedoLauncherGroup group, int index)
         {
             return ammo && !ammo.IsBeingDestroyed && !ammo.IsLaunched && ammo.Data != null &&
-                group.IsItemAllowed(index, ammo) &&
-                (!Compatibility.TryGet(ammo.TypeName, out var acceptsTube) || acceptsTube(tube));
+                group.IsItemAllowed(index, ammo);
         }
 
-        private static bool CanLoad(ExtendedTorpedoLauncher tube, TorpedoLauncherGroup group, int index)
+        internal static bool CanLoad(ExtendedTorpedoLauncher tube, TorpedoLauncherGroup group, int index)
         {
             return tube && !tube.IsBeingDestroyed && tube.CurrentState == TorpedoLauncher.State.Empty &&
                 !tube.IsFlooded && !tube.Slot.Item && !group.HasTransportOrders(index) &&
